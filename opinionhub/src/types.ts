@@ -21,6 +21,7 @@ export interface Poll {
   created_at: string;
   choices: Choice[];
   hasVoted: boolean;
+  userVoteId?: number | null;
   totalVotes: number;
   isSaved?: boolean;
 }

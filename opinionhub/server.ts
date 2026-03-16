@@ -529,14 +529,52 @@ async function startServer() {
       const { choiceId } = req.body;
 
       try {
-        await db.query(
-          "INSERT INTO votes (user_id, choice_id, poll_id) VALUES ($1, $2, $3)",
-          [req.user.id, choiceId, pollId]
-        );
+        const existingVote = await db.query("SELECT id FROM votes WHERE user_id = $1 AND poll_id = $2", [req.user.id, pollId]);
+        
+        if (existingVote.rows.length > 0) {
+          await db.query("UPDATE votes SET choice_id = $1 WHERE user_id = $2 AND poll_id = $3", [choiceId, req.user.id, pollId]);
+        } else {
+          await db.query(
+            "INSERT INTO votes (user_id, choice_id, poll_id) VALUES ($1, $2, $3)",
+            [req.user.id, choiceId, pollId]
+          );
+        }
         res.json({ success: true });
       } catch (err) {
-        res.status(400).json({ error: "Already voted or invalid choice" });
+        res.status(400).json({ error: "Invalid choice or poll" });
       }
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/polls/:id/vote", authenticate, async (req: any, res) => {
+    try {
+      const pollId = req.params.id;
+      await db.query("DELETE FROM votes WHERE user_id = $1 AND poll_id = $2", [req.user.id, pollId]);
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/polls/:id", authenticate, async (req: any, res) => {
+    try {
+      const pollId = req.params.id;
+      
+      const pollResult = await db.query("SELECT creator_id FROM polls WHERE id = $1", [pollId]);
+      if (!pollResult.rows.length) return res.status(404).json({ error: "Poll not found" });
+      if (pollResult.rows[0].creator_id !== req.user.id) return res.status(403).json({ error: "Forbidden" });
+
+      await db.query("DELETE FROM votes WHERE poll_id = $1", [pollId]);
+      await db.query("DELETE FROM comments WHERE poll_id = $1", [pollId]);
+      await db.query("DELETE FROM saved_polls WHERE poll_id = $1", [pollId]);
+      await db.query("DELETE FROM choices WHERE poll_id = $1", [pollId]);
+      await db.query("DELETE FROM polls WHERE id = $1", [pollId]);
+
+      res.json({ success: true });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Internal server error" });

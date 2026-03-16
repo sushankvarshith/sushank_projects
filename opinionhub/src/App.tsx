@@ -199,6 +199,29 @@ export default function App() {
     toast.success("Vote recorded!");
   };
 
+  const handleUnvote = async (pollId: number) => {
+    const res = await fetch(`/api/polls/${pollId}/vote`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      toast.error("Failed to remove vote");
+      throw new Error("Failed to unvote");
+    }
+    toast.success("Vote removed!");
+  };
+
+  const handleDeletePoll = async (pollId: number) => {
+    const res = await fetch(`/api/polls/${pollId}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      toast.error("Failed to delete poll");
+      throw new Error("Failed to delete poll");
+    }
+    toast.success("Poll deleted!");
+    fetchPolls();
+  };
+
   const handleUpdateProfile = async (data: { username: string; bio: string; avatar: string }) => {
     const res = await fetch("/api/auth/profile", {
       method: "PATCH",
@@ -413,7 +436,10 @@ export default function App() {
                 <PollCard 
                   poll={poll} 
                   onVote={handleVote} 
+                  onUnvote={handleUnvote}
+                  onDelete={handleDeletePoll}
                   isLoggedIn={!!user}
+                  currentUserId={user?.id}
                   onProfileClick={setSelectedProfileId}
                 />
               </div>

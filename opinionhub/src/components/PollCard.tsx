@@ -14,12 +14,15 @@ function cn(...inputs: ClassValue[]) {
 interface PollCardProps {
   poll: Poll;
   onVote: (pollId: number, choiceId: number) => Promise<void>;
+  onUnvote?: (pollId: number) => Promise<void>;
+  onDelete?: (pollId: number) => Promise<void>;
   isLoggedIn: boolean;
+  currentUserId?: number;
   onProfileClick?: (userId: number) => void;
   onSave?: (pollId: number, isSaved: boolean) => Promise<void>;
 }
 
-export default function PollCard({ poll, onVote, isLoggedIn, onProfileClick, onSave }: PollCardProps) {
+export default function PollCard({ poll, onVote, onUnvote, onDelete, isLoggedIn, currentUserId, onProfileClick, onSave }: PollCardProps) {
   const [localPoll, setLocalPoll] = useState<Poll>(poll);
   const [isVoting, setIsVoting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -50,21 +53,51 @@ export default function PollCard({ poll, onVote, isLoggedIn, onProfileClick, onS
   }, [showComments]);
 
   const handleVote = async (choiceId: number) => {
-    if (!isLoggedIn || localPoll.hasVoted || isVoting) return;
+    if (!isLoggedIn || isVoting) return;
 
     setIsVoting(true);
     
+    // Changing vote or voting for first time
+    const prevVoteId = localPoll.userVoteId;
+    
+    if (prevVoteId === choiceId) {
+      if (onUnvote) {
+         const updatedChoices = localPoll.choices.map(c => 
+            c.id === choiceId ? { ...c, vote_count: c.vote_count - 1 } : c
+         );
+         setLocalPoll({
+            ...localPoll,
+            choices: updatedChoices,
+            hasVoted: false,
+            userVoteId: null,
+            totalVotes: localPoll.totalVotes - 1
+         });
+         try {
+            await onUnvote(localPoll.id);
+         } catch(err) {
+            setLocalPoll(poll);
+         }
+      }
+      setIsVoting(false);
+      return;
+    }
+
     // Atomic update in frontend
-    const updatedChoices = localPoll.choices.map(c => 
-      c.id === choiceId ? { ...c, vote_count: c.vote_count + 1 } : c
-    );
+    const updatedChoices = localPoll.choices.map(c => {
+      let change = 0;
+      if (c.id === choiceId) change = 1;
+      if (c.id === prevVoteId) change = -1;
+      return { ...c, vote_count: Math.max(0, c.vote_count + change) };
+    });
+    
+    const voteDelta = prevVoteId ? 0 : 1;
     
     setLocalPoll({
       ...localPoll,
       choices: updatedChoices,
       hasVoted: true,
       userVoteId: choiceId,
-      totalVotes: localPoll.totalVotes + 1
+      totalVotes: localPoll.totalVotes + voteDelta
     });
 
     try {
@@ -153,13 +186,22 @@ export default function PollCard({ poll, onVote, isLoggedIn, onProfileClick, onS
           className="w-10 h-10 rounded-full border border-purple-200 shadow-sm"
           referrerPolicy="no-referrer"
         />
-        <div>
+        <div className="flex-1">
           <h3 className="font-bold text-purple-950 leading-tight">{localPoll.creator_name}</h3>
           <div className="flex items-center gap-1 text-xs text-purple-600/70">
             <Clock className="w-3 h-3" />
             {formatDistanceToNow(new Date(localPoll.created_at))} ago
           </div>
         </div>
+        {isLoggedIn && currentUserId === localPoll.creator_id && onDelete && (
+          <button 
+             onClick={(e) => { e.stopPropagation(); onDelete(localPoll.id); }}
+             className="text-red-400 hover:text-red-600 p-2 opacity-50 hover:opacity-100 transition-opacity"
+             title="Delete Poll"
+          >
+             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+          </button>
+        )}
       </div>
 
       {/* Content */}
@@ -178,7 +220,7 @@ export default function PollCard({ poll, onVote, isLoggedIn, onProfileClick, onS
             <button
               key={choice.id}
               onClick={() => handleVote(choice.id)}
-              disabled={localPoll.hasVoted || !isLoggedIn}
+              disabled={!isLoggedIn || isVoting}
               className={cn(
                 "relative w-full text-left p-4 rounded-xl border transition-all duration-300 overflow-hidden group/choice select-none",
                 localPoll.hasVoted 
